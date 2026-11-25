@@ -233,9 +233,14 @@ inline Object* Function::gcTarget() const { return p_ ? p_->target : nullptr; }
 inline void Function::setTarget(Object* o) { if (p_) p_->target = o; }
 
 namespace gc {
+// Diagnostico: quien mantiene vivo a quien (solo si trackParents(); lo usa el arnes de PC)
+inline Object*& curTracer() { static Object* c = nullptr; return c; }
+inline bool& trackParents() { static bool t = false; return t; }
+inline std::unordered_map<Object*, Object*>& parents() { static std::unordered_map<Object*, Object*> p; return p; }
 inline void markObj(Object* o) {
     if (!o || o->__gcMark == epoch()) return;
     o->__gcMark = epoch();
+    if (trackParents()) parents()[o] = curTracer();
     work().push_back(o);
 }
 inline void mark(Object* o) { markObj(o); }
@@ -264,7 +269,8 @@ inline size_t collect() {
     for (Object* o : h) if (o->__gcPinned) markObj(o);
     for (auto& f : rootFns()) f();
     auto& w = work();
-    while (!w.empty()) { Object* o = w.back(); w.pop_back(); o->__trace(); }
+    while (!w.empty()) { Object* o = w.back(); w.pop_back(); curTracer() = o; o->__trace(); }
+    curTracer() = nullptr;
     for (auto& f : preSweep()) f();
     size_t freed = 0, n = 0;
     std::vector<Object*> dead;

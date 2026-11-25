@@ -22,6 +22,7 @@
 #include <cstring>
 #include <algorithm>
 #include <unordered_map>
+#include <map>
 #include <malloc.h>
 #include "all.h"
 #include "../src/ajustes_vita.h"
@@ -226,6 +227,8 @@ int main() {
         flash::gcPressure() = []() {  // heap de newlib casi lleno
             struct mallinfo mi = mallinfo();
             size_t used = (size_t)mi.uordblks - std::min((size_t)mi.uordblks, fastallocFreeBytes());  // sin las listas libres
+            // (Probado: recoger tambien con la zona de pixeles llena no libera nada, lo que la llena esta vivo; solo
+            // anade pausas de 0,35 s. Medido en la Vita 25-11: 22 pasadas, zona igual de llena.)
             return used > (size_t)_newlib_heap_size_user / 10 * 8;
         };
         as3::gc::rootFns().push_back([st, pre] { as3_trace_statics(); as3::gc::mark(st); as3::gc::mark(pre); });
@@ -413,12 +416,43 @@ int main() {
                                (unsigned)gs.textures, gs.texBytes / 1048576.0, (unsigned)gs.uploads, gs.uploadBytes / 1048576.0, (unsigned)gs.cmds, (unsigned)gs.quads, (unsigned)ds.flushes, (unsigned)ds.srcFlushes);
                 gs.uploads = gs.uploadBytes = gs.cmds = gs.quads = 0; ds.flushes = ds.srcFlushes = 0;
             }
+            {   // zona de pixeles por encima del 85 %: soltar imagenes del paquete sin modificar hasta bajar al 70 %
+                auto& pa = pixmem::arena();
+                if (pa.size && pa.used > pa.size / 100 * 85) {
+                    double t0 = nowMs();
+                    size_t fr = flash::evictCleanPakImages(pa.used - pa.size / 100 * 70);
+                    platform::logf("[memoria] soltadas imagenes del paquete sin modificar: %.1f MB en %.1f ms (total %u imagenes)\n",
+                                   fr / 1048576.0, nowMs() - t0, (unsigned)flash::evictStats().images);
+                }
+            }
             if (totalFrames % 300 < 60) {
                 memReport("periodico");
                 auto& pa = pixmem::arena();
                 platform::logf("[memoria] zona de pixeles: %.1f de %.1f MB (pico %.1f), %u bloques, %u huecos, %u fuera de la zona | recolector: %u pasadas, ultima %.1f ms, %u objetos vivos\n",
                                pa.used / 1048576.0, pa.size / 1048576.0, pa.peak / 1048576.0, (unsigned)pa.live.size(), (unsigned)pa.freeList.size(), (unsigned)pa.fallbacks,
                                (unsigned)as3::gc::stats().collections, as3::gc::stats().lastMs, (unsigned)as3::gc::stats().lastLive);
+            }
+            if (totalFrames % 900 < 60) {  // desglose de pixeles en bitmaps (incluye basura aun no recogida)
+                std::unordered_map<flash::BitmapData*, bool> fromPak;
+                for (auto* b : flash::bmpStats().all) fromPak[b] = true;
+                size_t pakB = 0, newB = 0, camB = 0, pakN = 0, newN = 0;
+                std::map<std::pair<int,int>, std::pair<size_t,size_t>> bySize;
+                for (as3::Object* o : as3::gc::heap()) {
+                    auto* bd = dynamic_cast<flash::BitmapData*>(o);
+                    if (!bd || bd->px.empty()) continue;
+                    size_t by = bd->px.size() * 4;
+                    if (bd->deferred) camB += by;
+                    else if (fromPak.count(bd)) { pakB += by; pakN++; }
+                    else { newB += by; newN++; }
+                    auto& s = bySize[{bd->width, bd->height}]; s.first++; s.second += by;
+                }
+                platform::logf("[bitmaps] del paquete %u (%.1f MB) | creados por el codigo %u (%.1f MB) | camaras %.1f MB\n",
+                               (unsigned)pakN, pakB / 1048576.0, (unsigned)newN, newB / 1048576.0, camB / 1048576.0);
+                std::vector<std::pair<size_t, std::pair<int,int>>> v;
+                for (auto& kv : bySize) v.push_back({kv.second.second, kv.first});
+                std::sort(v.rbegin(), v.rend());
+                for (size_t i = 0; i < v.size() && i < 10; i++)
+                    platform::logf("[bitmaps]   %4dx%-4d x%-4u %.1f MB\n", v[i].second.first, v[i].second.second, (unsigned)bySize[v[i].second].first, v[i].first / 1048576.0);
             }
             frames = 0; slow = 0; maxFrame = 0; sumLogic = sumDraw = sumUpload = 0; statStart = now;
         }

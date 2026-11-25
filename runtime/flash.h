@@ -166,6 +166,9 @@ struct BitmapData : Object {
     void touched();               // se va a escribir: version nueva; si otro bufer la tiene pendiente, se aplana antes
     int32_t width = 0, height = 0; bool transparent = true; std::vector<uint32_t, pixmem::Alloc<uint32_t>> px;
     std::string sourcePath;  // si no esta vacia y px esta vacio, los pixeles se decodifican del PNG al primer acceso
+    // Imagen del paquete ya descomprimida: de donde salio y la version al descomprimirla. Si no se ha escrito desde
+    // entonces (version == decodedVersion) sus pixeles se pueden soltar y volver a leer del paquete (evictCleanPakImages)
+    std::string pakPath; uint32_t decodedVersion = 0;
     void ensure() {
         if (deferred && !replaying && !cmds.empty()) flushDeferred();
         if (uniformPending) { uniformPending = false; std::fill(px.begin(), px.end(), uniformColor); }
@@ -174,7 +177,8 @@ struct BitmapData : Object {
             size_t n = (size_t)width * (size_t)height;
             px.reserve(n + 8); px.resize(n);  // 8 pixeles de margen: decompressFast escribe hasta 32 bytes de mas
             bool ok = platform::readImagePixels(sourcePath, (uint8_t*)px.data(), [](const uint8_t* s, size_t sl, uint8_t* d, size_t dl) { return lz4lite::decompressFast(s, sl, d, dl); });
-            if (ok) { bmpStats().decoded++; bmpStats().all.push_back(this); bmpStats().bytes += px.size() * 4; sourcePath.clear(); return; }
+            if (ok) { bmpStats().decoded++; bmpStats().all.push_back(this); bmpStats().bytes += px.size() * 4;
+                      pakPath = sourcePath; decodedVersion = version; sourcePath.clear(); return; }
             platform::log("[imagenes]", "no se pudo leer %s del paquete", sourcePath.c_str());
             px.assign(n, 0); sourcePath.clear(); return;
         }
@@ -1167,6 +1171,27 @@ inline bool __bmpGcHook = (as3::gc::preSweep().push_back([] {
 struct DeferStats { size_t flushes = 0, flushedCmds = 0, srcFlushes = 0, snapshots = 0; };
 inline DeferStats& deferStats() { static DeferStats d; return d; }
 constexpr size_t kSnapshotMaxBytes = 4 * 1024 * 1024;  // copia al escribir solo para bitmaps de hasta 4 MB
+// Suelta los pixeles de imagenes del paquete que no se han modificado desde que se descomprimieron (las mas antiguas
+// primero) hasta liberar `want` bytes. Vuelven a leerse del paquete (LZ4, ~1 ms) si la CPU las necesita; la GPU sigue
+// dibujando su textura ya subida (la cache de texturas solo pide pixeles si cambia la version).
+// El juego guarda TODAS sus imagenes en DataHandler.m_dictIMG: sin esto, cada imagen usada una vez ocupa memoria para
+// siempre (medido en la Vita 25-11: 131 imagenes de objetos de 242x282 = 34 MB, y crece con cada accion).
+struct EvictStats { size_t passes = 0, images = 0, bytes = 0; };
+inline EvictStats& evictStats() { static EvictStats s; return s; }
+inline size_t evictCleanPakImages(size_t want) {
+    size_t freed = 0;
+    for (BitmapData* b : bmpStats().all) {
+        if (freed >= want) break;
+        if (b->px.empty() || b->pakPath.empty() || b->version != b->decodedVersion || b->deferred || b->replaying ||
+            !b->cmds.empty() || b->deferRefs || b->uniformPending) continue;
+        freed += b->px.size() * 4;
+        std::vector<uint32_t, pixmem::Alloc<uint32_t>>().swap(b->px);
+        b->sourcePath = b->pakPath;
+        evictStats().images++;
+    }
+    evictStats().passes++; evictStats().bytes += freed;
+    return freed;
+}
 inline std::vector<BitmapData*>& deferredTargets() { static std::vector<BitmapData*> v; return v; }
 inline void BitmapData::dropDeferred() {
     for (auto& k : cmds) if (k.src && k.src->deferRefs) k.src->deferRefs--;
@@ -1216,6 +1241,10 @@ inline void BitmapData::touched() {
         // Sin margen en la zona de pixeles (medido: 69,9 de 72 MB al mover un hexagono -> bad_alloc): tampoco se copia
         auto& pa = pixmem::arena();
         bool tight = pa.size && pa.used + bytes + (8u << 20) > pa.size;
+        if (tight && !deferred && bytes <= kSnapshotMaxBytes) {  // hacer sitio soltando imagenes del paquete sin modificar
+            evictCleanPakImages(bytes + (16u << 20));
+            tight = pa.used + bytes + (8u << 20) > pa.size;
+        }
         if (deferred || replaying || px.empty() || bytes > kSnapshotMaxBytes || tight) {
             for (BitmapData* t : deferredTargets()) if (t->deferred && !t->cmds.empty()) t->flushDeferred();
             return;

@@ -34,7 +34,32 @@ static void memPoint(const char* tag) {
     std::printf("[memoria] %-22s privada %.1f MB | bitmaps: %zu creados, %zu PNG decodificados, %.1f MB de pixeles\n", tag,
                 pmc.PagefileUsage / 1048576.0, b.created, b.decoded, b.bytes / 1048576.0);
     // Desglose de los pixeles VIVOS (tras recolectar): imagenes del paquete vs bitmaps creados por el codigo, por tamano
+    if (FlxG::camera) std::printf("[camaras] FlxG.camera %p %dx%d buffer %dx%d deferred=%d | lista:", (void*)FlxG::camera, (int)FlxG::camera->width, (int)FlxG::camera->height,
+                                  FlxG::camera->buffer ? FlxG::camera->buffer->width : -1, FlxG::camera->buffer ? FlxG::camera->buffer->height : -1, FlxG::camera->buffer ? (int)FlxG::camera->buffer->deferred : -1);
+    for (FlxCamera* c : camaras::todas()) std::printf(" %p %dx%d", (void*)c, c->buffer ? c->buffer->width : -1, c->buffer ? c->buffer->height : -1);
+    std::printf("\n");
+    as3::gc::trackParents() = true; as3::gc::parents().clear();
     if (as3::gc::enabled()) as3::gc::collect();
+    as3::gc::trackParents() = false;
+    {   // quien retiene los bitmaps grandes: cadena de dueños (clase) hasta la raiz
+        int shown1360 = 0, shown242 = 0;
+        for (as3::Object* o : as3::gc::heap()) {
+            auto* bd = dynamic_cast<flash::BitmapData*>(o);
+            if (!bd || bd->px.empty()) continue;
+            bool big = bd->width == 1360 && bd->height == 768, item = bd->width == 242 && bd->height == 282;
+            if (!(big && shown1360 < 4) && !(item && shown242 < 2)) continue;
+            (big ? shown1360 : shown242)++;
+            std::string chain;
+            as3::Object* p = o;
+            for (int d = 0; d < 14 && p; d++) {
+                auto it = as3::gc::parents().find(p);
+                if (it == as3::gc::parents().end()) { chain += " < (raiz)"; break; }
+                p = it->second;
+                chain += " < "; chain += p ? p->__className().str() : std::string("(raiz/estatico)");
+            }
+            std::printf("[dueños] %dx%d%s\n", bd->width, bd->height, chain.c_str());
+        }
+    }
     std::unordered_set<flash::BitmapData*> fromPak(b.all.begin(), b.all.end());
     size_t pakB = 0, pakN = 0, newB = 0, newN = 0, camB = 0;
     std::map<std::pair<int,int>, std::pair<size_t,size_t>> bySize;
