@@ -23,8 +23,7 @@ tools/vita/va-venv/
 tools/vita/vita-agent-use/
 tools/vita/plugins/
 
-# imagenes de LiveArea del usuario (logotipos de terceros): solo para su VPK personal
-port/sce_sys_usuario/
+# zip original de las imagenes de LiveArea (ya copiadas en port/sce_sys/)
 NEOScavenger_PSVITA.zip
 
 # varios
