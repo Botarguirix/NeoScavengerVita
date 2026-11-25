@@ -1,0 +1,49 @@
+# A3-2: habilidades -> despertar en la instalacion criogenica -> elegir respuesta arrastrando -> confirmar
+click 112 34
+wait 5
+click 185 58
+wait 5
+click 480 188
+wait 30
+click 480 188
+wait 120
+shot d01_despertar
+# coger la opcion (clic: el juego la recoge al soltar) y dejarla en la caja de eleccion (otro clic)
+click 95 265
+raton
+move 480 300
+click 480 300
+raton
+wait 20
+shot d02_opcion_elegida
+click 755 273
+wait 90
+estado
+shot d03_tras_confirmar
+click 755 273
+wait 90
+shot d04_siguiente
+memoria
+click 755 273
+wait 90
+shot d05
+estado
+click 755 273
+wait 90
+shot d06
+click 755 273
+wait 90
+shot d07
+memoria
+# Mapa: mover a un hexagono vecino (al este del jugador) y terminar turno
+click 680 190
+wait 60
+shot d08_mover
+click 920 15
+wait 90
+shot d09_fin_turno
+keydown 73
+wait 6
+keyup 73
+wait 20
+shot kl_tecla_I_larga

@@ -1,0 +1,56 @@
+# A3-1: desde la pantalla de habilidades (tras NEW GAME) elegir dos habilidades y confirmar.
+# Coordenadas de pantalla 960x544 (diseno 800x450 del juego con su opcion Stretch).
+shot 01_inicio
+# Hacking
+click 112 34
+wait 10
+shot 01_hacking
+# Tracking
+click 185 58
+wait 10
+shot 02_tracking
+memoria
+# Confirm
+click 480 188
+wait 60
+estado
+shot 03_confirmado
+wait 120
+estado
+shot 04_tras_confirmar
+memoria
+# Confirm otra vez: renunciar a los puntos sobrantes (como pide el juego)
+click 480 188
+wait 90
+estado
+shot 05_partida
+wait 150
+shot 06_partida_mas
+memoria
+# Encuentro inicial: Confirm (755,273) varias veces, captura en cada paso
+click 755 273
+wait 60
+shot 07_encuentro2
+click 755 273
+wait 60
+shot 08_encuentro3
+click 755 273
+wait 60
+shot 09_encuentro4
+memoria
+combate
+# Combate inicial: confirmar la respuesta seleccionada varios turnos
+click 755 273
+wait 60
+shot 10_turno1
+click 755 273
+wait 60
+shot 11_turno2
+click 755 273
+wait 60
+shot 12_turno3
+click 755 273
+wait 60
+shot 13_turno4
+estado
+memoria

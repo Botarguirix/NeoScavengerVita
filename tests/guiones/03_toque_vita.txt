@@ -1,0 +1,8 @@
+# Misma secuencia que el tactil de la Vita: mover, 2 fotogramas, pulsar, 1 fotograma, soltar
+move 470 127
+wait 2
+down
+up
+wait 40
+estado
+shot t_vita

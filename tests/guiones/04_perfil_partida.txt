@@ -1,0 +1,11 @@
+# Perfil de la logica en la partida (despertar en la instalacion), sin dibujar
+click 112 34
+wait 5
+click 185 58
+wait 5
+click 480 188
+wait 30
+click 480 188
+wait 120
+perfil 600
+memoria

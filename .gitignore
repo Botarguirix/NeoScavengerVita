@@ -1,0 +1,30 @@
+# NUNCA subir datos del juego ni codigo derivado de el (decompilado o traducido): todo eso vive en work/
+work/
+*.pak
+*.swf
+*.sol
+
+# compilaciones
+build*/
+port/build/
+port/build_cfg.log
+*.vpk
+*.self
+*.velf
+*.o
+*.obj
+*.exe
+
+# herramientas de terceros descargadas (se obtienen aparte, ver docs/INSTALAR_VITA.md)
+tools/ffdec/
+tools/jre/
+tools/vita/mbedtls-*
+tools/vita/va-venv/
+tools/vita/vita-agent-use/
+tools/vita/plugins/
+
+# varios
+__pycache__/
+*.pyc
+*.bak
+*.log

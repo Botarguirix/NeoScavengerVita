@@ -1,0 +1,3 @@
+# Segunda sesion: CONTINUE en el menu carga la partida guardada
+wait 30
+shot g2_continuar
