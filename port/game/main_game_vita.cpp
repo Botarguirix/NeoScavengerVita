@@ -162,7 +162,10 @@ int main() {
             SceUID id = sceKernelAllocMemBlock("sonda2", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, mb * 1024 * 1024, nullptr);
             if (id >= 0) { best = mb; sceKernelFreeMemBlock(id); break; }
         }
-        unsigned arenaMB = best > 36 ? best - 20 : 0;
+        // Margen para vitaGL: 36 MB (antes 20). Volcado del 25-11 al guardar: "Cannot allocate physical memory from
+        // [ScePhyMemPartGame]" pidiendo 16 MB con solo 15,4 MB libres. La zona ya no se llena (se sueltan imagenes del
+        // paquete al pasar del 85 %), asi que es mejor dejar mas memoria al sistema.
+        unsigned arenaMB = best > 52 ? best - 36 : 0;
         void* base = nullptr;
         if (arenaMB) {
             SceUID id = sceKernelAllocMemBlock("pixeles", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, arenaMB * 1024 * 1024, nullptr);
@@ -449,7 +452,7 @@ int main() {
                 if (pa.size && pa.used > pa.size / 100 * 85) {
                     double t0 = nowMs();
                     size_t fr = flash::evictCleanPakImages(pa.used - pa.size / 100 * 70);
-                    platform::logf("[memoria] soltadas imagenes del paquete sin modificar: %.1f MB en %.1f ms (total %u imagenes)\n",
+                    if (fr) platform::logf("[memoria] soltadas imagenes del paquete sin modificar: %.1f MB en %.1f ms (total %u imagenes)\n",
                                    fr / 1048576.0, nowMs() - t0, (unsigned)flash::evictStats().images);
                 }
             }
