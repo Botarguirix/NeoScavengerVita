@@ -5,7 +5,7 @@
 //   - el escenario se dibuja por software en un BitmapData y se sube como textura cada fotograma
 //   - entrada minima: tactil frontal = raton (toque = clic, arrastrar = arrastrar), stick izquierdo = cursor con
 //     zona muerta, X = clic, START = Esc (controles completos: fase C, docs/CONTROLES_VITA.md)
-//   - 30 fps bloqueados por vcount; log con [perf], [memoria] y etiquetas de cuello de botella
+//   - 60 fps (kVblanksPorFotograma); log con [perf], [memoria] y etiquetas de cuello de botella
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/kernel/clib.h>
@@ -46,6 +46,7 @@ unsigned int sceUserMainThreadStackSize = 4u * 1024u * 1024u;
 
 static const char* kDir = "ux0:data/neoscavvita/";
 static const int W = 960, H = 544;
+static const unsigned kVblanksPorFotograma = 1;  // 1 = 60 fps, 2 = 30 fps
 // Zonas muertas de los sticks (docs/CONTROLES_VITA.md): ajustables entre 15 % y 40 % segun el desgaste de cada consola
 static const float kStickDead = 0.28f, kStickOuter = 0.93f;
 
@@ -419,7 +420,9 @@ int main() {
         double f3 = nowMs();
         if (f3 - f1 > 1000) platform::logf("[lento] dibujo %.0f ms (preparar %.0f, GPU/subidas %.0f)\n", f3 - f1, f2 - f1, f3 - f2);
         vglSwapBuffers(GL_FALSE);
-        while ((unsigned)(sceDisplayGetVcount() - lastVcount) < 2) sceDisplayWaitVblankStart();
+        // 60 fps (1 vblank por fotograma): el juego declara nFPS = 60 y Flixel avanza en pasos de 1/60 s; a 30 fps hacia
+        // dos pasos de logica por cada fotograma dibujado
+        while ((unsigned)(sceDisplayGetVcount() - lastVcount) < kVblanksPorFotograma) sceDisplayWaitVblankStart();
         lastVcount = sceDisplayGetVcount();
 
         // ---------------- medicion
@@ -429,23 +432,23 @@ int main() {
         frames++; totalFrames++;
         sumLogic += f1 - f0; sumDraw += f2 - f1; sumUpload += f3 - f2;
         maxFrame = std::max(maxFrame, fm);
-        if (fm > 40) slow++;
+        if (fm > 1000.0 / 60 * kVblanksPorFotograma + 4) slow++;
 #ifdef AS3_TRACE
         if (fm > 1000) perfilResumir(fm, (uint32_t)totalFrames);
 #endif
         if (now - statStart >= 2000) {
             double fps = frames * 1000.0 / (now - statStart);
             double lg = sumLogic / frames, dr = sumDraw / frames, up = sumUpload / frames;
-            const char* tag = (lg + dr + up) < 30 ? "ok" : (dr > lg ? "[CPU-bound] dibujo por software" : "[CPU-bound] logica del juego");
+            const char* tag = (lg + dr + up) < 1000.0 / 60 * kVblanksPorFotograma - 2 ? "ok" : (dr > lg ? "[CPU-bound] dibujo por software" : "[CPU-bound] logica del juego");
             FlxState* cur = FlxG::get_state();
             platform::logf("[perf] %.1f fps, frame max %.1f ms, %d lentos | logica %.1f ms, dibujo %.1f ms, subida %.1f ms (%s) | estado %s\n",
                         fps, maxFrame, slow, lg, dr, up, tag, cur ? cur->__className().str().c_str() : "-");
             {
                 auto& gs = gpu::stats(); auto& ds = flash::deferStats();
                 platform::logf("[audio] mezcla %.2f ms por bloque de 23 ms (otro nucleo), %u voces\n", gAudioMixMs.load(), (unsigned)audio::mixer().voices.size());
-                platform::logf("[gpu] %u texturas (%.1f MB VRAM), %u subidas (%.1f MB), %u ordenes, %u quads | aplanados por software %u (por origen %u)\n",
-                               (unsigned)gs.textures, gs.texBytes / 1048576.0, (unsigned)gs.uploads, gs.uploadBytes / 1048576.0, (unsigned)gs.cmds, (unsigned)gs.quads, (unsigned)ds.flushes, (unsigned)ds.srcFlushes);
-                gs.uploads = gs.uploadBytes = gs.cmds = gs.quads = 0; ds.flushes = ds.srcFlushes = 0;
+                platform::logf("[gpu] %u texturas (%.1f MB VRAM), %u subidas (%.1f MB), %u ordenes, %u quads en %u lotes | aplanados por software %u (por origen %u)\n",
+                               (unsigned)gs.textures, gs.texBytes / 1048576.0, (unsigned)gs.uploads, gs.uploadBytes / 1048576.0, (unsigned)gs.cmds, (unsigned)gs.quads, (unsigned)gs.batches, (unsigned)ds.flushes, (unsigned)ds.srcFlushes);
+                gs.uploads = gs.uploadBytes = gs.cmds = gs.quads = gs.batches = 0; ds.flushes = ds.srcFlushes = 0;
             }
             {   // zona de pixeles por encima del 85 %: soltar imagenes del paquete sin modificar hasta bajar al 70 %
                 auto& pa = pixmem::arena();
