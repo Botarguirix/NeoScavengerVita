@@ -41,12 +41,27 @@ target_link_libraries(neoscavgame
 )
 
 vita_create_self(eboot.bin neoscavgame UNSAFE)
+# Imagenes de LiveArea: las del usuario (port/sce_sys_usuario/, fuera de git: llevan marcas de terceros) si existen;
+# si no, los marcadores genericos del repositorio (port/sce_sys/).
+set(LA_USER ${ROOT}/port/sce_sys_usuario/sce_sys)
+if(EXISTS ${LA_USER}/icon0.png AND EXISTS ${LA_USER}/pic0.png AND EXISTS ${LA_USER}/livearea/contents/bg.png AND EXISTS ${LA_USER}/livearea/contents/startup.png)
+  set(LA_ICON ${LA_USER}/icon0.png)
+  set(LA_PIC ${LA_USER}/pic0.png)
+  set(LA_BG ${LA_USER}/livearea/contents/bg.png)
+  set(LA_START ${LA_USER}/livearea/contents/startup.png)
+  message(STATUS "LiveArea: imagenes del usuario")
+else()
+  set(LA_ICON ${ROOT}/port/sce_sys/icon0.png)
+  set(LA_PIC ${ROOT}/port/sce_sys/pic0.png)
+  set(LA_BG ${ROOT}/port/sce_sys/livearea/contents/bg0.png)
+  set(LA_START ${ROOT}/port/sce_sys/livearea/contents/startup.png)
+endif()
 vita_create_vpk(neoscavgame.vpk ${TITLE_ID} eboot.bin
   VERSION ${VERSION}
   NAME "NEO Scavenger Vita"
-  FILE ${ROOT}/port/sce_sys/icon0.png sce_sys/icon0.png
-  FILE ${ROOT}/port/sce_sys/pic0.png sce_sys/pic0.png
-  FILE ${ROOT}/port/sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
-  FILE ${ROOT}/port/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+  FILE ${LA_ICON} sce_sys/icon0.png
+  FILE ${LA_PIC} sce_sys/pic0.png
+  FILE ${LA_BG} sce_sys/livearea/contents/bg0.png
+  FILE ${LA_START} sce_sys/livearea/contents/startup.png
   FILE ${ROOT}/port/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
 )

@@ -23,6 +23,10 @@ tools/vita/va-venv/
 tools/vita/vita-agent-use/
 tools/vita/plugins/
 
+# imagenes de LiveArea del usuario (logotipos de terceros): solo para su VPK personal
+port/sce_sys_usuario/
+NEOScavenger_PSVITA.zip
+
 # varios
 __pycache__/
 *.pyc
