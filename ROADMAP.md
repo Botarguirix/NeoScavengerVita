@@ -57,6 +57,7 @@ Documentación común a todos los ports: **[D:\Proyectos\_VitaComun](../_VitaCom
 | D2 | 🔶 La música del juego son pistas incrustadas (`cueExploreTrack*`, `cueEnding01`…), en el mismo mezclador por streaming; la carpeta `OST` de Steam es la banda sonora aparte y el juego no la usa | Música del menú y del mapa sin cortes a 30 fps |
 | D3 | ✅ `SharedObject` → `ux0:data/neoscavvita/save/<nombre>.sol` (serializador propio como AMF: campos públicos, vectores tipados, diccionarios, referencias; escritura segura). **En la Vita**: autoguardado al terminar turno, cerrar, reabrir y CONTINUE carga la partida. Falta importar partidas del original de PC | Guardar, cerrar, cargar y continuar la misma partida |
 | D4 | ⬜ Suspender/reanudar, cierre seguro | La partida sigue tras suspender |
+| D5 | ✅ (25-11) LiveArea con arte propio del autor (icono, `pic0`, fondo, inicio; sin símbolo de PlayStation). Icono verificado en el menú de la Vita | Icono y LiveArea propios en la consola |
 
 ## Fase E — Interfaz limpia en 960×544 (hito 9)
 | # | Paso | Hecho cuando |
@@ -72,6 +73,11 @@ Documentación común a todos los ports: **[D:\Proyectos\_VitaComun](../_VitaCom
 | F3 | ⬜ Carga de texturas, audio y E/S fuera del hilo principal; informe por núcleo | Ningún tirón al cambiar de escena |
 | F4 | 🔶 Recolector entre fotogramas funcionando en la Vita, espaciado por volumen de memoria y presión del heap. Pasada de ~0,76 s con 240.000 objetos vivos (un tirón de ~0,5 s en las transiciones; en reposo no recolecta). Pendiente: reducir los objetos vivos (el mapa de 12.757 hexágonos y el XML) o hacerlo incremental; 2 h sin crecer | 2 h de juego sin caer de 30 fps ni crecer en memoria |
 | F5 | ⬜ Medir el margen a relojes por defecto y a 500/222 (los sube el usuario; aviso de calor y desgaste) | Cifras anotadas para ambos relojes |
+| F6 | ✅ (25-11) **Memoria en la partida**: sin el fotograma de 13–14 s ni `bad_alloc` al mover un hexágono. Copia al escribir en `BitmapData::touched` (en vez de reproducir la cámara entera por software); fondos del título y barras *letterbox* de 1360×768 fuera; copia de fotograma de la cámara a 1×1; imágenes del paquete sin modificar se sueltan al pasar del 85 % de la zona de píxeles (20 MB en 1,4 ms). Heap 188 → 129,5 MB, zona 70 → 58 de 72 MB. Herramientas: desglose de bitmaps vivos en el log y rastreo de dueños del recolector (PC) | Mover y terminar turno sin fotogramas > 2 s ni cierres |
+| F7 | 🔶 Entrada a la partida: 5,3 → **4,5 s** (código del juego 4,8 → 4,0 s + recolector 0,45 s). `framePixels` de `FlxSprite` comparte `_pixels` cuando el fotograma es la imagen entera y sin color (parche `patch_frame_pixels` del traductor; Flixel ya contempla ese caso) y los bitmaps nuevos se rellenan de forma perezosa: bitmaps creados 6081 → 2424, heap 135 → 121 MB. Quedan `FlxSound.play` al arrancar la música (~0,5 s), las heridas del inventario (~0,5 s) y el resto de `resetHelpers`. Carga 28,8 s (`ResourceLoader.load`; la E/S ya no es el cuello). Perfilador en la consola arreglado (el muestreador ya no reserva memoria) y cronómetros `[lento]` por fase | Entrada ≤ 2 s; carga ≤ 10 s |
+| F8 | ⬜ **Camino a 60 fps** (el original declara `nFPS = 60`): dibujo por lotes (prueba NEOS00002: CPU 20,9 → 3,2 ms con 5000 cuadros), menos pausas del recolector. Repetir la prueba de dibujo con la GPU a 111 MHz (perfil de PSVshell para NEOS00002) | 60 fps en menú y mapa |
+
+**VPK de pruebas `port/memtest` (NEOS00002)**, medido 24-11: `fread` 2,9 MB/s frente a `sceIoRead` 10,6–13,6 MB/s; LZ4 114–157 MB/s; las 1052 imágenes `x2_` son 277 de los 391 MB; texturas base en BGRA8 = 84 MB VRAM + 32 MB RAM, en RGBA4444 = 58 MB (caben en VRAM); comprimir DXT5 en la consola tarda 33 s (habría que hacerlo en `mkdatapak`).
 
 ## Fase G — Mods de NexusMods (hito 10)
 | # | Paso | Hecho cuando |

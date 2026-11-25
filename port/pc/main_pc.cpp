@@ -286,7 +286,7 @@ int main(int argc, char** argv) {
                 if (getenv("NEOS_PROF")) { sampler::start(); sampler::on = true; }
                 for (int i = 0; i < N; i++) {
                     double a = platform::nowMs(); if (getenv("NEOS_DEFER")) camaras::activarDiferido(); flash::pumpPending(); flash::enterFrameAll(st); flash::gcAfterFrame(30);
-                    double b = platform::nowMs(); std::fill(fb->px.begin(), fb->px.end(), 0xFF000000u); flash::renderStage(st, fb);
+                    double b = platform::nowMs(); std::fill(fb->px.begin(), fb->px.end(), 0xFF000000u); fb->uniformPending = false; flash::renderStage(st, fb);
                     double c = platform::nowMs(); lg += b - a; dr += c - b;
                 }
                 if (getenv("NEOS_PROF")) sampler::dump("perfil_muestras.txt");

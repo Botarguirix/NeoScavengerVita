@@ -2065,7 +2065,27 @@ def apply_owned_fields(cls, cpp):
     if not fields:
         return cpp
     pat = re.compile(r"^(\s+)this->(" + "|".join(map(re.escape, fields)) + r") = (.*);$", re.M)
-    return pat.sub(lambda m: f"{m.group(1)}flash::ownedSet(this->{m.group(2)}, {m.group(3)});", cpp)
+    cpp = pat.sub(lambda m: f"{m.group(1)}flash::ownedSet(this->{m.group(2)}, {m.group(3)});", cpp)
+    if cls == "FlxSprite":
+        cpp = patch_frame_pixels(cpp)
+    return cpp
+
+
+# FlxSprite: si el fotograma es la imagen entera y no hay transformacion de color, framePixels ES _pixels (sin copia,
+# sin memoria extra y una sola textura). Flixel ya contempla ese caso (FlxSprite.fill compara _pixels != framePixels).
+# Medido en la Vita (25-11): las copias de resetHelpers eran ~43 % de los 4,8 s de crear la partida.
+_FP_SYNC = ("flash::framePixelsSync(this->framePixels, this->_pixels, this->width, this->height, "
+            "this->frameWidth, this->frameHeight, this->_colorTransform);")
+
+def patch_frame_pixels(cpp):
+    new_line = "flash::ownedSet(this->framePixels, as3::make<flash::BitmapData>(this->width, this->height));"
+    copy_line = "this->framePixels->copyPixels(this->_pixels, this->_flashRect, this->_flashPointZero);"
+    n1, n2 = cpp.count(new_line), cpp.count(copy_line)
+    if n1 != 1 or n2 != 2:
+        print(f"AVISO patch_frame_pixels: patron inesperado ({n1} creaciones, {n2} copias); FlxSprite sin parchear")
+        return cpp
+    cpp = cpp.replace(new_line, _FP_SYNC)
+    return cpp.replace(copy_line, _FP_SYNC + " if (this->framePixels != this->_pixels) " + copy_line)
 
 
 def write_if_changed(path, text):

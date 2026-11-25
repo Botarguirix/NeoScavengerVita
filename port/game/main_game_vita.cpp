@@ -92,33 +92,44 @@ static int audioThread(SceSize, void*) {
 static std::atomic<uint32_t> gFrameId{0};
 static std::atomic<uint64_t> gFrameStartUs{0};
 #ifdef AS3_TRACE
+// El hilo muestreador NO reserva memoria ni escribe en el log (la version anterior lo hacia y dejaba de dar senales en
+// cuanto empezaba la partida): solo copia los 3 punteros de la cima de la pila a un bufer fijo. El hilo del juego
+// resume y escribe al terminar un fotograma lento (perfilResumir).
+static constexpr uint32_t kSampMax = 30000;
+static const char* gSamp[kSampMax][3];
+static std::atomic<uint32_t> gSampN{0};
+static std::atomic<uint32_t> gSampEmpty{0};
 static int profSampler(SceSize, void*) {
-    std::unordered_map<std::string, uint32_t> hist;
-    uint32_t lastId = 0; uint32_t total = 0;
     for (;;) {
         sceKernelDelayThread(1000);
-        uint32_t id = gFrameId.load();
-        if (id != lastId) {
-            if (total > 1000) {
-                std::vector<std::pair<uint32_t, std::string>> v;
-                for (auto& kv : hist) v.push_back({kv.second, kv.first});
-                std::sort(v.rbegin(), v.rend());
-                platform::logf("[perfil] fotograma de %u ms (fotograma %u). Funciones AS3 en la cima de la pila:\n", total, lastId);
-                for (size_t i = 0; i < v.size() && i < 20; i++) platform::logf("[perfil] %5.1f%%  %s\n", 100.0 * v[i].first / total, v[i].second.c_str());
-            }
-            hist.clear(); total = 0; lastId = id;
-        }
         uint64_t now = sceKernelGetProcessTimeWide();
-        if (now - gFrameStartUs.load() < 1000000ull) continue;  // solo fotogramas de mas de 1 s
+        if (now - gFrameStartUs.load() < 500000ull) continue;  // solo a partir de 0,5 s dentro del fotograma
         auto& st = as3::traceStack();
         size_t n = st.size();
-        if (n == 0) continue;
-        std::string k = st[n - 1] ? st[n - 1] : "?";
-        if (n > 1 && st[n - 2]) { k += " < "; k += st[n - 2]; }
-        if (n > 2 && st[n - 3]) { k += " < "; k += st[n - 3]; }
-        hist[k] += 1; total += 1;  // ~1 muestra por ms
+        if (n == 0 || n > st.capacity()) { gSampEmpty++; continue; }
+        uint32_t i = gSampN.load();
+        if (i >= kSampMax) continue;
+        const char* const* d = st.data();
+        gSamp[i][0] = d[n - 1]; gSamp[i][1] = n > 1 ? d[n - 2] : nullptr; gSamp[i][2] = n > 2 ? d[n - 3] : nullptr;
+        gSampN.store(i + 1);
     }
     return 0;
+}
+static void perfilResumir(double frameMs, uint32_t frameNo) {
+    uint32_t n = gSampN.load(), vacias = gSampEmpty.load();
+    if (n < 200) return;
+    std::unordered_map<std::string, uint32_t> hist;
+    for (uint32_t i = 0; i < n; i++) {
+        std::string k = gSamp[i][0] ? gSamp[i][0] : "?";
+        if (gSamp[i][1]) { k += " < "; k += gSamp[i][1]; }
+        if (gSamp[i][2]) { k += " < "; k += gSamp[i][2]; }
+        hist[k]++;
+    }
+    std::vector<std::pair<uint32_t, std::string>> v;
+    for (auto& kv : hist) v.push_back({kv.second, kv.first});
+    std::sort(v.rbegin(), v.rend());
+    platform::logf("[perfil] fotograma de %.0f ms (n.o %u): %u muestras (+%u con la pila AS3 vacia). Cima de la pila:\n", frameMs, frameNo, n, vacias);
+    for (size_t i = 0; i < v.size() && i < 20; i++) platform::logf("[perfil] %5.1f%%  %s\n", 100.0 * v[i].first / n, v[i].second.c_str());
 }
 #endif
 
@@ -271,6 +282,9 @@ int main() {
 
     for (;;) {
         double f0 = nowMs();
+#ifdef AS3_TRACE
+        gSampN = 0; gSampEmpty = 0;
+#endif
         gFrameId++; gFrameStartUs = sceKernelGetProcessTimeWide();
         // ---------------- entrada
         SceCtrlData pad{};
@@ -343,12 +357,22 @@ int main() {
             (void)startDown;
 
             // ---------------- logica del juego (un fotograma de Flash)
+            double p0 = nowMs();
             camaras::activarDiferido();  // los blits de Flixel de todas las camaras se graban para la GPU
+            double p1 = nowMs();
             flash::pumpPending();
+            double p2 = nowMs();
             flash::enterFrameAll(st);
+            double p3 = nowMs();
             flash::audioUpdate(44100);
             ajustes::aplicar();
-            if (flash::gcAfterFrame(60) && as3::gc::stats().lastMs > 20)
+            double p4 = nowMs();
+            bool gcRan = flash::gcAfterFrame(60);
+            double p5 = nowMs();
+            if (p5 - p0 > 1000)  // fotograma de logica de mas de 1 s: en que fase se fue
+                platform::logf("[lento] logica %.0f ms: camaras %.0f | cola de eventos (cargas) %.0f | enterFrame (juego) %.0f | audio+ajustes %.0f | recolector %.0f%s\n",
+                               p5 - p0, p1 - p0, p2 - p1, p3 - p2, p4 - p3, p5 - p4, gcRan ? " (paso)" : "");
+            if (gcRan && as3::gc::stats().lastMs > 20)
                 platform::logf("[CPU-bound] recolector: %.1f ms (%u objetos vivos, %u liberados)\n", as3::gc::stats().lastMs, as3::gc::stats().lastLive, as3::gc::stats().lastFreed);
         } catch (const as3::Thrown& t) {
             platform::logf("[juego] excepcion AS3 sin capturar (fotograma %d): %s\n", totalFrames, as3::toString(t.value).str().c_str());
@@ -380,7 +404,7 @@ int main() {
             for (auto& kv : gpuCams) kv.second->dropDeferred();
             if (sk != sinDibujar) { platform::logf("[gpu] camaras por GPU: %u | objetos del escenario sin dibujar: %d\n", (unsigned)gpuCams.size(), sk); sinDibujar = sk; }
         } else {
-            std::fill(frame->px.begin(), frame->px.end(), 0u);
+            std::fill(frame->px.begin(), frame->px.end(), 0u); frame->uniformPending = false;
             flash::renderStage(st, frame);  // leer los buferes aplana sus ordenes por software
             glBindTexture(GL_TEXTURE_2D, tex);
             if (texMem) std::memcpy(texMem, frame->px.data(), (size_t)W * H * 4);
@@ -390,6 +414,7 @@ int main() {
             quadAt(0, 0, (float)W, (float)H);
         }
         double f3 = nowMs();
+        if (f3 - f1 > 1000) platform::logf("[lento] dibujo %.0f ms (preparar %.0f, GPU/subidas %.0f)\n", f3 - f1, f2 - f1, f3 - f2);
         vglSwapBuffers(GL_FALSE);
         while ((unsigned)(sceDisplayGetVcount() - lastVcount) < 2) sceDisplayWaitVblankStart();
         lastVcount = sceDisplayGetVcount();
@@ -402,6 +427,9 @@ int main() {
         sumLogic += f1 - f0; sumDraw += f2 - f1; sumUpload += f3 - f2;
         maxFrame = std::max(maxFrame, fm);
         if (fm > 40) slow++;
+#ifdef AS3_TRACE
+        if (fm > 1000) perfilResumir(fm, (uint32_t)totalFrames);
+#endif
         if (now - statStart >= 2000) {
             double fps = frames * 1000.0 / (now - statStart);
             double lg = sumLogic / frames, dr = sumDraw / frames, up = sumUpload / frames;
@@ -432,7 +460,9 @@ int main() {
                                pa.used / 1048576.0, pa.size / 1048576.0, pa.peak / 1048576.0, (unsigned)pa.live.size(), (unsigned)pa.freeList.size(), (unsigned)pa.fallbacks,
                                (unsigned)as3::gc::stats().collections, as3::gc::stats().lastMs, (unsigned)as3::gc::stats().lastLive);
             }
-            if (totalFrames % 900 < 60) {  // desglose de pixeles en bitmaps (incluye basura aun no recogida)
+            // Desglose de pixeles en bitmaps (incluye basura aun no recogida). Solo pasada la carga: durante la carga hay
+            // ~57 fotogramas y la condicion se cumplia en cada informe (recorrer 250.000 objetos 10 veces: +3,6 s de carga)
+            if (totalFrames >= 900 && totalFrames % 900 < 60) {
                 std::unordered_map<flash::BitmapData*, bool> fromPak;
                 for (auto* b : flash::bmpStats().all) fromPak[b] = true;
                 size_t pakB = 0, newB = 0, camB = 0, pakN = 0, newN = 0;

@@ -169,6 +169,7 @@ struct BitmapData : Object {
     // Imagen del paquete ya descomprimida: de donde salio y la version al descomprimirla. Si no se ha escrito desde
     // entonces (version == decodedVersion) sus pixeles se pueden soltar y volver a leer del paquete (evictCleanPakImages)
     std::string pakPath; uint32_t decodedVersion = 0;
+    bool sharedNoDispose = false;  // lo usan varios duenos (p. ej. _pixels y framePixels de un FlxSprite): ownedSet no lo libera
     void ensure() {
         if (deferred && !replaying && !cmds.empty()) flushDeferred();
         if (uniformPending) { uniformPending = false; std::fill(px.begin(), px.end(), uniformColor); }
@@ -187,7 +188,10 @@ struct BitmapData : Object {
         else { platform::log("[imagenes]", "no se pudo decodificar %s", sourcePath.c_str()); px.assign((size_t)width * (size_t)height, 0); }
         sourcePath.clear();
     }
-    void __construct(double w = 0, double h = 0, bool t = true, double fill = 0xFFFFFFFF) { uniform = true; uniformColor = (uint32_t)fill | (t ? 0u : 0xFF000000u); width = (int32_t)w; height = (int32_t)h; transparent = t; px.assign((size_t)w * (size_t)h, (uint32_t)fill); bmpStats().created++; bmpStats().bytes += px.size() * 4; bmpStats().all.push_back(this); bmpStats().sizes[{width, height}]++;
+    void __construct(double w = 0, double h = 0, bool t = true, double fill = 0xFFFFFFFF) { uniform = true; uniformColor = (uint32_t)fill | (t ? 0u : 0xFF000000u); width = (int32_t)w; height = (int32_t)h; transparent = t;
+        // Relleno perezoso: se reserva sin escribir y ensure() rellena solo si alguien lee o escribe una parte. Muchos
+        // bitmaps nuevos se sobrescriben enteros (la copia de fotograma de FlxSprite.resetHelpers): asi no se recorren dos veces
+        px.resize((size_t)w * (size_t)h); uniformPending = !px.empty(); bmpStats().created++; bmpStats().bytes += px.size() * 4; bmpStats().all.push_back(this); bmpStats().sizes[{width, height}]++;
 #ifdef AS3_TRACE
         { auto& st = as3::traceStack(); std::string k = std::to_string(width) + "x" + std::to_string(height);
           for (size_t i = st.size(), n = 0; i-- > 0 && n < 3; n++) k += std::string(" < ") + st[i];
@@ -276,6 +280,12 @@ struct BitmapData : Object {
             return;
         }
         touched();
+        if (uniformPending && !merge && !alphaB && src != this && !src->uniform) {  // la copia tapa todo el destino: sobra el relleno
+            int sx = (int)std::floor(r->x), sy = (int)std::floor(r->y), dx = (int)std::floor(p->x), dy = (int)std::floor(p->y);
+            if (dx == 0 && dy == 0 && sx >= 0 && sy >= 0 && (int)r->width >= width && (int)r->height >= height &&
+                sx + width <= src->width && sy + height <= src->height && src->transparent == transparent)
+                uniformPending = false;
+        }
         ensure();
         if (!(src->uniform && !alphaB && src != this)) src->ensure();  // origen de un solo color: el atajo de abajo no lee sus pixeles
         if (alphaB) alphaB->ensure();
@@ -1132,8 +1142,24 @@ inline void renderStage(Stage* st, BitmapData* target) {
 // Asignacion a un campo BitmapData con dueno unico: libera el bitmap anterior (ver OWNED_BITMAP_FIELDS en as3cpp.py)
 template <class V> inline void ownedSet(BitmapData*& slot, V&& v) {
     BitmapData* nv = v;
-    if (slot && slot != nv) slot->dispose();
+    if (slot && slot != nv && !slot->sharedNoDispose) slot->dispose();  // compartido: lo libera el recolector
     slot = nv;
+}
+// framePixels de FlxSprite (parche de tools/as3cpp: patch_frame_pixels). Fotograma = imagen entera y sin color:
+// se comparte _pixels. Si no, bufer propio del tamano del fotograma (nunca el compartido: se escribiria en la imagen).
+template <class W, class H, class FW, class FH>
+inline void framePixelsSync(BitmapData*& fp, BitmapData* px, W w, H h, FW fw, FH fh, ColorTransform* ct) {
+    int iw = (int)w, ih = (int)h;
+    bool full = px && !ct && (int)fw == px->width && (int)fh == px->height && iw == px->width && ih == px->height && px->width > 0;
+    if (full) {
+        if (fp != px) { if (fp && !fp->sharedNoDispose) fp->dispose(); fp = px; }
+        px->sharedNoDispose = true;
+        return;
+    }
+    if (!fp || fp == px || fp->sharedNoDispose || fp->width != iw || fp->height != ih) {
+        if (fp && fp != px && !fp->sharedNoDispose) fp->dispose();
+        fp = new BitmapData(); fp->__construct(iw, ih);
+    }
 }
 inline void Sound::__trace() { EventDispatcher::__trace(); as3::gc::mark(id3); }
 // Recolector entre fotogramas: solo si no hay eventos asincronos pendientes (sus cierres guardan objetos que no se ven)

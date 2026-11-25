@@ -71,6 +71,10 @@ template <class T> struct Alloc {
     template <class U> Alloc(const Alloc<U>&) {}
     T* allocate(size_t n) { return (T*)pixmem::alloc(n * sizeof(T)); }
     void deallocate(T* p, size_t) { pixmem::free(p); }
+    // resize() sin valor deja los pixeles sin inicializar (el constructor de BitmapData los rellena de forma perezosa:
+    // uniformPending); con valor, los construye normalmente
+    template <class U> void construct(U* p) noexcept { ::new ((void*)p) U; }
+    template <class U, class V> void construct(U* p, V&& v) { ::new ((void*)p) U(static_cast<V&&>(v)); }
     template <class U> bool operator==(const Alloc<U>&) const { return true; }
     template <class U> bool operator!=(const Alloc<U>&) const { return false; }
 };

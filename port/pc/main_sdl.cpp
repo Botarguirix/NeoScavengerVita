@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
             ajustes::aplicar();
             flash::gcAfterFrame(30);
             double t1 = platform::nowMs();
-            std::fill(frame->px.begin(), frame->px.end(), 0xFF000000u);
+            std::fill(frame->px.begin(), frame->px.end(), 0xFF000000u); frame->uniformPending = false;
             flash::renderStage(st, frame);
             sumLogic += t1 - t0; sumDraw += platform::nowMs() - t1; frames++;
         } catch (const as3::Thrown& t) {
